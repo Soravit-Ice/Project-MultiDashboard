@@ -20,7 +20,7 @@ export default function Login() {
 
     setLoading(true);
     try {
-      await login({
+      const data = await login({
         emailOrUsername: formData.email,
         password: formData.password,
       });
@@ -28,7 +28,8 @@ export default function Login() {
         content: 'Welcome back! Login successful 🎉',
         duration: 3,
       });
-      navigate('/dashboard');
+      const destination = data.user?.role === 'ADMIN' ? '/admin' : '/dashboard';
+      navigate(destination, { replace: true });
     } catch (error) {
       console.log('Login error:', error);
       console.log('Error response:', error.response);
@@ -136,7 +137,7 @@ export default function Login() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-4 bg-gray-900 text-black rounded-2xl font-semibold hover:bg-gray-800 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg"
+              className="w-full py-4 bg-gray-900 text-white rounded-2xl font-semibold hover:bg-gray-800 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg"
             >
               {loading ? 'Signing in...' : 'Get Started'}
             </button>

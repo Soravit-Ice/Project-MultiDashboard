@@ -72,8 +72,8 @@ export default function Register() {
 
   return (
     <div className="min-h-screen w-full bg-gradient-to-br from-purple-50 via-pink-50 to-rose-100 flex items-center justify-center p-4">
-      {/* Centered Card */}
-      <div className="w-full max-w-md">
+      {/* Centered Card - Fixed positioning */}
+      <div className="w-full max-w-md mx-auto my-auto">
         <div className="bg-gradient-to-br from-white/90 to-purple-50/50 backdrop-blur-xl rounded-[32px] shadow-2xl border border-white/60 p-10">
           {/* Icon */}
           <div className="flex justify-center mb-8">

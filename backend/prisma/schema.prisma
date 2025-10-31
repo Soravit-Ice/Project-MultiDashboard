@@ -12,6 +12,69 @@ enum Role {
   ADMIN
 }
 
+enum MessageDirection {
+  OUTBOUND
+  INBOUND
+}
+
+enum MessageChannel {
+  DIRECT
+  GROUP
+  BROADCAST
+}
+
+enum MessageSource {
+  MANUAL
+  SCHEDULED
+  AUTOMATION
+}
+
+enum MessageStatus {
+  PENDING
+  SENT
+  FAILED
+  SCHEDULED
+}
+
+enum ScheduledMessageStatus {
+  PENDING
+  PROCESSING
+  SENT
+  PARTIAL
+  FAILED
+  CANCELLED
+}
+
+enum ScheduledRecipientType {
+  USER
+  GROUP
+}
+
+enum ActivityType {
+  MESSAGE_SEND
+  MESSAGE_FAIL
+  MESSAGE_RECEIVE
+  LOGIN
+  LOGOUT
+  USER_CREATE
+  USER_UPDATE
+  USER_DELETE
+  GROUP_CREATE
+  GROUP_UPDATE
+  GROUP_DELETE
+  CODE_CREATE
+  CODE_DISABLE
+  QUERY_RUN
+  EXPORT_RUN
+}
+
+enum IntegrationType {
+  DISCORD
+  FACEBOOK
+  LINE
+  EMAIL
+}
+
 model User {
   id        String   @id @default(uuid())
   email     String   @unique
@@ -19,9 +82,26 @@ model User {
   password  String
   name      String?
   role      Role     @default(USER)
+  lineUserId String? @unique
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  sessions  Session[]
+  sessions              Session[]
+  queryHistories        QueryHistory[]         @relation("QueryHistoryOwner")
+  adminPreferences      AdminPreference[]      @relation("AdminPreferenceOwner")
+  sentMessages          MessageLog[]           @relation("SentMessages")
+  receivedMessages      MessageLog[]           @relation("ReceivedMessages")
+  scheduledMessages     ScheduledMessage[]     @relation("AdminScheduledMessages")
+  scheduledRecipients   ScheduledMessageRecipient[] @relation("ScheduledRecipientUser")
+  groupsCreated         UserGroup[]            @relation("UserGroupCreator")
+  groupMemberships      UserGroupMember[]      @relation("UserGroupMembers")
+  adminCodes            AdminCode[]            @relation("AdminCodeCreator")
+  adminCodeUsages       AdminCodeUsage[]       @relation("AdminCodeUsageUser")
+  activityLogs          ActivityLog[]          @relation("ActivityActor")
+  integrations          UserIntegration[]
+  emailContacts         EmailContact[]
+  emailContactGroups    EmailContactGroup[]
+  lineContacts          LineContact[]
+  lineContactGroups     LineContactGroup[]
 }
 
 model Session {
@@ -31,6 +111,322 @@ model Session {
   expiresAt DateTime
   createdAt DateTime @default(now())
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   @@index([userId])
   @@index([token])
+}
+
+model QueryHistory {
+  id             String   @id @default(uuid())
+  adminId        String
+  query          String
+  parameters     Json?
+  resultRowCount Int?
+  executionTimeMs Int?
+  success        Boolean  @default(false)
+  errorMessage   String?
+  executedAt     DateTime @default(now())
+  isVisible      Boolean  @default(true)
+
+  admin User @relation("QueryHistoryOwner", fields: [adminId], references: [id], onDelete: Cascade)
+
+  @@index([adminId])
+  @@index([executedAt])
+}
+
+model AdminPreference {
+  id        String   @id @default(uuid())
+  adminId   String
+  key       String
+  value     Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  admin User @relation("AdminPreferenceOwner", fields: [adminId], references: [id], onDelete: Cascade)
+
+  @@unique([adminId, key])
+}
+
+model UserGroup {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  createdBy           User                        @relation("UserGroupCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  members             UserGroupMember[]           @relation("GroupMembers")
+  messageLogs         MessageLog[]                @relation("GroupMessages")
+  scheduledRecipients ScheduledMessageRecipient[] @relation("RecipientGroup")
+
+  @@unique([name])
+  @@index([createdById])
+}
+
+model UserGroupMember {
+  id        String   @id @default(uuid())
+  groupId   String
+  userId    String
+  role      String?
+  addedAt   DateTime @default(now())
+
+  group UserGroup @relation("GroupMembers", fields: [groupId], references: [id], onDelete: Cascade)
+  user  User      @relation("UserGroupMembers", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, userId])
+  @@index([userId])
+}
+
+model ScheduledMessage {
+  id              String                  @id @default(uuid())
+  adminId         String
+  title           String?
+  content         String
+  scheduleAt      DateTime
+  status          ScheduledMessageStatus  @default(PENDING)
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
+  lastProcessedAt DateTime?
+  error           String?
+
+  admin        User                        @relation("AdminScheduledMessages", fields: [adminId], references: [id], onDelete: Cascade)
+  recipients   ScheduledMessageRecipient[] @relation("MessageRecipients")
+  messageLogs  MessageLog[]                @relation("ScheduledMessageLog")
+
+  @@index([adminId])
+  @@index([scheduleAt])
+}
+
+model ScheduledMessageRecipient {
+  id                 String                 @id @default(uuid())
+  scheduledMessageId String
+  recipientType      ScheduledRecipientType
+  userId             String?
+  groupId            String?
+  createdAt          DateTime               @default(now())
+
+  scheduledMessage ScheduledMessage @relation("MessageRecipients", fields: [scheduledMessageId], references: [id], onDelete: Cascade)
+  user             User?            @relation("ScheduledRecipientUser", fields: [userId], references: [id], onDelete: Cascade)
+  group            UserGroup?       @relation("RecipientGroup", fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@index([scheduledMessageId])
+  @@index([userId])
+  @@index([groupId])
+}
+
+model MessageLog {
+  id                  String          @id @default(uuid())
+  senderId            String?
+  recipientUserId     String?
+  recipientGroupId    String?
+  emailContactId      String?
+  recipientEmail      String?
+  lineContactId       String?
+  lineRecipientId     String?
+  title               String?
+  direction           MessageDirection
+  channel             MessageChannel
+  source              MessageSource
+  content             String
+  scheduledMessageId  String?
+  integrationId       String?
+  status              MessageStatus   @default(PENDING)
+  error               String?
+  sentAt              DateTime?
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+
+  sender           User?             @relation("SentMessages", fields: [senderId], references: [id], onDelete: SetNull)
+  recipientUser    User?             @relation("ReceivedMessages", fields: [recipientUserId], references: [id], onDelete: SetNull)
+  recipientGroup   UserGroup?        @relation("GroupMessages", fields: [recipientGroupId], references: [id], onDelete: SetNull)
+  scheduledMessage ScheduledMessage? @relation("ScheduledMessageLog", fields: [scheduledMessageId], references: [id], onDelete: SetNull)
+  integration      UserIntegration?  @relation(fields: [integrationId], references: [id], onDelete: SetNull)
+  emailContact      EmailContact?    @relation(fields: [emailContactId], references: [id], onDelete: SetNull)
+  lineContact       LineContact?     @relation(fields: [lineContactId], references: [id], onDelete: SetNull)
+  attachments      MessageAttachment[]
+
+  @@index([senderId])
+  @@index([recipientUserId])
+  @@index([recipientGroupId])
+  @@index([scheduledMessageId])
+  @@index([integrationId])
+  @@index([emailContactId])
+  @@index([lineContactId])
+  @@index([lineRecipientId])
+  @@index([createdAt])
+}
+
+model AdminCode {
+  id          String   @id @default(uuid())
+  code        String   @unique
+  description String?
+  expiresAt   DateTime?
+  maxUses     Int?
+  usageCount  Int      @default(0)
+  createdById String
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  createdBy User            @relation("AdminCodeCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  usages    AdminCodeUsage[]
+
+  @@index([createdById])
+}
+
+model AdminCodeUsage {
+  id          String   @id @default(uuid())
+  adminCodeId String
+  usedById    String?
+  usedAt      DateTime @default(now())
+  note        String?
+
+  adminCode AdminCode @relation(fields: [adminCodeId], references: [id], onDelete: Cascade)
+  usedBy    User?     @relation("AdminCodeUsageUser", fields: [usedById], references: [id], onDelete: SetNull)
+
+  @@index([adminCodeId])
+  @@index([usedById])
+}
+
+model ActivityLog {
+  id         String       @id @default(uuid())
+  actorId    String?
+  type       ActivityType
+  entityId   String?
+  entityType String?
+  metadata   Json?
+  createdAt  DateTime     @default(now())
+
+  actor User? @relation("ActivityActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([actorId])
+  @@index([type])
+  @@index([createdAt])
+}
+
+model UserIntegration {
+  id           String          @id @default(uuid())
+  userId       String
+  type         IntegrationType
+  name         String?
+  isConnected  Boolean         @default(false)
+  config       Json?
+  credentials  Json?
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  user         User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messageLogs  MessageLog[]
+  lineContacts LineContact[]
+
+  @@index([userId])
+  @@index([type])
+}
+
+model MessageAttachment {
+  id           String      @id @default(uuid())
+  messageId    String
+  filename     String
+  originalName String
+  mimeType     String
+  size         Int
+  url          String
+  createdAt    DateTime    @default(now())
+
+  message MessageLog @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([messageId])
+}
+
+model EmailContact {
+  id        String   @id @default(uuid())
+  userId    String
+  name      String?
+  email     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner       User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  groupLinks  EmailContactGroupMember[]
+  messageLogs MessageLog[]
+
+  @@unique([userId, email])
+  @@index([userId])
+}
+
+model EmailContactGroup {
+  id        String   @id @default(uuid())
+  userId    String
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner   User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  members EmailContactGroupMember[]
+
+  @@unique([userId, name])
+  @@index([userId])
+}
+
+model EmailContactGroupMember {
+  id         String          @id @default(uuid())
+  groupId    String
+  contactId  String
+  addedAt    DateTime        @default(now())
+
+  group   EmailContactGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  contact EmailContact      @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, contactId])
+  @@index([contactId])
+}
+
+model LineContact {
+  id            String   @id @default(uuid())
+  userId        String
+  integrationId String
+  lineUserId    String
+  displayName   String?
+  pictureUrl    String?
+  language      String?
+  statusMessage String?
+  lastEventAt   DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  owner       User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  integration UserIntegration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  groupLinks  LineContactGroupMember[]
+  messageLogs MessageLog[]
+
+  @@unique([integrationId, lineUserId])
+  @@index([userId])
+  @@index([integrationId])
+}
+
+model LineContactGroup {
+  id        String   @id @default(uuid())
+  userId    String
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner   User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  members LineContactGroupMember[]
+
+  @@unique([userId, name])
+  @@index([userId])
+}
+
+model LineContactGroupMember {
+  id        String   @id @default(uuid())
+  groupId   String
+  contactId String
+  addedAt   DateTime @default(now())
+
+  group   LineContactGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  contact LineContact      @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, contactId])
+  @@index([contactId])
 }

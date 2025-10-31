@@ -1,82 +1,112 @@
 import express from 'express';
 import { authenticateToken } from '../middleware/auth.js';
 import { requireAdmin } from '../middleware/roleAuth.js';
-import prisma from '../config/database.js';
+
+import {
+  executeSqlQuery,
+  getQueryHistory,
+  updateQueryHistoryVisibility
+} from '../controllers/adminSqlController.js';
+import {
+  fetchPreferences,
+  updatePreference
+} from '../controllers/adminPreferenceController.js';
+import {
+  listUsers,
+  createUser,
+  updateUser,
+  updateUserRole,
+  deleteUser
+} from '../controllers/adminUserController.js';
+import {
+  getMessageLogs,
+  sendManualMessageHandler,
+  logInboundMessageHandler,
+  listChatThreads,
+  getChatMessages,
+  sendChatMessage
+} from '../controllers/adminMessagingController.js';
+import {
+  listGroups,
+  createGroup,
+  updateGroup,
+  deleteGroup,
+  addGroupMembers,
+  removeGroupMember
+} from '../controllers/adminGroupController.js';
+import {
+  createSchedule,
+  listSchedules,
+  rescheduleMessage,
+  cancelSchedule,
+  triggerSchedulerNow
+} from '../controllers/adminScheduleController.js';
+import {
+  listAdminCodes,
+  createAdminCode,
+  deactivateAdminCode,
+  deleteAdminCode
+} from '../controllers/adminCodeController.js';
+import { getDashboardMetrics } from '../controllers/adminDashboardController.js';
+import {
+  exportMessageLogs,
+  exportQueryHistory
+} from '../controllers/adminExportController.js';
 
 const router = express.Router();
 
-// Get all users (Admin only)
-router.get('/users', authenticateToken, requireAdmin, async (req, res) => {
-  try {
-    const users = await prisma.user.findMany({
-      select: {
-        id: true,
-        email: true,
-        username: true,
-        name: true,
-        role: true,
-        createdAt: true,
-        updatedAt: true
-      }
-    });
-    res.json({ users });
-  } catch (error) {
-    console.error('Get users error:', error);
-    res.status(500).json({ error: 'Internal server error.' });
-  }
-});
+router.use(authenticateToken, requireAdmin);
 
-// Update user role (Admin only)
-router.patch('/users/:userId/role', authenticateToken, requireAdmin, async (req, res) => {
-  try {
-    const { userId } = req.params;
-    const { role } = req.body;
+// SQL console
+router.post('/sql/execute', executeSqlQuery);
+router.get('/sql/history', getQueryHistory);
+router.patch('/sql/history/:historyId/visibility', updateQueryHistoryVisibility);
 
-    if (!['USER', 'ADMIN'].includes(role)) {
-      return res.status(400).json({ error: 'Invalid role. Must be USER or ADMIN.' });
-    }
+// Preferences
+router.get('/preferences', fetchPreferences);
+router.put('/preferences', updatePreference);
 
-    const user = await prisma.user.update({
-      where: { id: userId },
-      data: { role },
-      select: {
-        id: true,
-        email: true,
-        username: true,
-        name: true,
-        role: true
-      }
-    });
+// Users
+router.get('/users', listUsers);
+router.post('/users', createUser);
+router.patch('/users/:userId', updateUser);
+router.patch('/users/:userId/role', updateUserRole);
+router.delete('/users/:userId', deleteUser);
 
-    res.json({ 
-      message: 'User role updated successfully.',
-      user 
-    });
-  } catch (error) {
-    console.error('Update role error:', error);
-    res.status(500).json({ error: 'Internal server error.' });
-  }
-});
+// Messaging & chat
+router.get('/messages/logs', getMessageLogs);
+router.post('/messages/manual', sendManualMessageHandler);
+router.post('/messages/inbound', logInboundMessageHandler);
+router.get('/chat/threads', listChatThreads);
+router.get('/chat/:userId/messages', getChatMessages);
+router.post('/chat/:userId/messages', sendChatMessage);
 
-// Delete user (Admin only)
-router.delete('/users/:userId', authenticateToken, requireAdmin, async (req, res) => {
-  try {
-    const { userId } = req.params;
+// Groups
+router.get('/groups', listGroups);
+router.post('/groups', createGroup);
+router.patch('/groups/:groupId', updateGroup);
+router.delete('/groups/:groupId', deleteGroup);
+router.post('/groups/:groupId/members', addGroupMembers);
+router.delete('/groups/:groupId/members/:userId', removeGroupMember);
 
-    // Prevent admin from deleting themselves
-    if (userId === req.user.id) {
-      return res.status(400).json({ error: 'Cannot delete your own account.' });
-    }
+// Scheduling
+router.post('/schedules', createSchedule);
+router.get('/schedules', listSchedules);
+router.patch('/schedules/:scheduleId', rescheduleMessage);
+router.post('/schedules/:scheduleId/cancel', cancelSchedule);
+router.post('/schedules/run-now', triggerSchedulerNow);
 
-    await prisma.user.delete({
-      where: { id: userId }
-    });
+// Admin codes
+router.get('/codes', listAdminCodes);
+router.post('/codes', createAdminCode);
+router.post('/codes/:codeId/deactivate', deactivateAdminCode);
+router.delete('/codes/:codeId', deleteAdminCode);
 
-    res.json({ message: 'User deleted successfully.' });
-  } catch (error) {
-    console.error('Delete user error:', error);
-    res.status(500).json({ error: 'Internal server error.' });
-  }
-});
+// Dashboard
+router.get('/dashboard/metrics', getDashboardMetrics);
+
+// Exports
+router.get('/exports/query-history', exportQueryHistory);
+router.get('/exports/message-logs', exportMessageLogs);
 
 export default router;
